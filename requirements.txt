@@ -1,0 +1,12 @@
+# Seoul PM2.5 ST-GNN - Dependencies
+#
+# torch-scatter must be installed via PyG wheel server (not PyPI):
+#   pip install torch-scatter -f https://data.pyg.org/whl/torch-1.11.0+cu113.html
+#
+# For other PyTorch/CUDA versions, replace the URL accordingly:
+#   https://data.pyg.org/whl/torch-{TORCH_VERSION}+{CUDA_VERSION}.html
+#   e.g. torch-1.13.0+cu117, torch-2.0.0+cu118
+
+numpy==1.19.5
+torch==1.11.0
+torch-scatter==2.0.9
