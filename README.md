@@ -1,4 +1,4 @@
-# 🌫️ Dynamic PM2.5 Mapping & Route Optimization using ST-GNN + LUR
+# 🌫️ Dynamic PM10 Mapping & Route Optimization using ST-GNN + LUR
 
 ## Engineering Industry Competition Project
 
@@ -8,7 +8,7 @@ This project focuses on solving real-world urban air pollution problems through 
 
 ## Overview
 
-We build a **dynamic PM2.5 mapping system** and use it to solve two key optimization problems:
+We build a **dynamic PM10 mapping system** and use it to solve two key optimization problems:
 
 ### 1️ Road Cleaning Vehicle Routing Optimization
 
