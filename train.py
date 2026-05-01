@@ -1,203 +1,260 @@
 """
-Training, validation, and test evaluation script for the Seoul PM2.5 ST-GNN.
+Scenario-based training for the Seoul PM10 ST-GNN.
 
-Pipeline:
-    1. Generate synthetic data.
-    2. Build static graph and precompute all edge features.
-    3. Normalise node features (min-max on training set).
-    4. Create sliding-window datasets and DataLoaders.
-    5. Train for 50 epochs (Adam, MSE loss); save best model.
-    6. Evaluate on test set: report MAE, RMSE (original scale).
-    7. Print node embedding h_i shape.
+Graph modes:
+    static         : bidirectional edges within distance threshold (default)
+    climatological : directed edges — only i→j if mean training-period wind
+                     at station i blows toward j
+    soft_dynamic   : same edges as static, but edge features are zeroed out
+                     at each timestep when wind blows against that edge
 
 Usage:
-    python train.py
+    python3 train.py --scenario S1_transport_pm10
+    python3 train.py --scenario S3_transport_pm10_pollutants --graph_mode climatological
+    python3 train.py --scenario S1_transport_pm10 --graph_mode soft_dynamic --epochs 100
 """
 
-import os
+import argparse
 import math
+import os
+import time
+
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
-from data_generator import STATION_COORDS, SeoulPM25Dataset, generate_synthetic_data
+from dataset import load_scenario_split, STGNNScenarioDataset
 from graph_builder import (
     build_static_graph,
+    build_climatological_graph,
     compute_all_dynamic_edge_features,
     get_full_edge_features,
 )
 from model import STGNNModel
 
+GRAPH_MODES = ("static", "climatological", "soft_dynamic")
+GRAPH_DIR   = "graphs"
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Hyper-parameters
-# ──────────────────────────────────────────────────────────────────────────────
-
-WINDOW        = 12          # lookback window (hours)
-BATCH_SIZE    = 32
-EPOCHS        = 50
-LR            = 1e-3
-THRESHOLD_KM  = 20.0
-GAT_HIDDEN    = 64
-GRU_HIDDEN    = 64
-NUM_HEADS     = 4
-CHECKPOINT    = "best_model.pt"
-
-# Train / Val / Test split ratios (time-ordered, no shuffle)
-TRAIN_RATIO   = 0.70
-VAL_RATIO     = 0.15
-# TEST_RATIO = 0.15  (remainder)
+ALL_SCENARIOS = [
+    "S1_transport_pm10",
+    "S2_transport_pm10_pm10mask",
+    "S3_transport_pm10_pollutants",
+    "S4_transport_pm10_pollutants_pm10mask",
+    "S5_transport_pm10_pollutants_allmask",
+    "S6_transport_pm10_pollutants_summarymask",
+    "S7_transport_pm10_weather",
+    "S8_transport_pm10_rain",
+    "S9_transport_pm10_weather_rain",
+    "S10_transport_all_summarymask",
+]
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Normalisation helpers
-# ──────────────────────────────────────────────────────────────────────────────
+# ── Hyper-parameters ──────────────────────────────────────────────────────────
 
-def minmax_normalize(
-    data: np.ndarray,
-    feat_min: np.ndarray,
-    feat_max: np.ndarray,
-) -> np.ndarray:
-    """Min-max scale features to [0, 1]."""
-    return (data - feat_min) / (feat_max - feat_min + 1e-8)
-
-
-def minmax_denormalize(
-    data_norm: np.ndarray,
-    feat_min: np.ndarray,
-    feat_max: np.ndarray,
-) -> np.ndarray:
-    """Inverse of minmax_normalize."""
-    return data_norm * (feat_max - feat_min + 1e-8) + feat_min
+WINDOW       = 24
+BATCH_SIZE   = 32
+EPOCHS       = 100
+LR           = 1e-3
+THRESHOLD_KM = 10.0
+GAT_HIDDEN   = 64
+GRU_HIDDEN   = 64
+NUM_HEADS    = 4
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Evaluation helper
-# ──────────────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def load_or_build_graph(
+    graph_mode: str,
+    coords,
+    train_nodes: np.ndarray,
+    threshold_km: float,
+):
+    """Load pre-built graph from graphs/ if available, otherwise build on the fly.
+
+    soft_dynamic shares the static graph structure, so it reads from graphs/static/.
+    Falls back to building when prepare_graphs.py has not been run yet.
+    """
+    # soft_dynamic reuses the static graph structure
+    graph_key = "static" if graph_mode == "soft_dynamic" else graph_mode
+    graph_path = os.path.join(GRAPH_DIR, graph_key)
+    files = {
+        "edge_index":    os.path.join(graph_path, "edge_index.npy"),
+        "static_attr":   os.path.join(graph_path, "static_attr.npy"),
+        "edge_bearings": os.path.join(graph_path, "edge_bearings.npy"),
+    }
+
+    if all(os.path.exists(p) for p in files.values()):
+        edge_index    = np.load(files["edge_index"])
+        static_attr   = np.load(files["static_attr"])
+        edge_bearings = np.load(files["edge_bearings"])
+        print(f"  Graph loaded from {graph_path}/  (E={edge_index.shape[1]})")
+        return edge_index, static_attr, edge_bearings
+
+    print(f"  Pre-built graph not found → building on the fly")
+    print(f"  (Run prepare_graphs.py once to cache graphs)")
+    if graph_mode == "climatological":
+        return build_climatological_graph(coords, train_nodes, threshold_km)
+    return build_static_graph(coords, threshold_km)
+
+
+def minmax_normalize(arr: np.ndarray, a_min: np.ndarray, a_max: np.ndarray) -> np.ndarray:
+    return (arr - a_min) / (a_max - a_min + 1e-8)
+
+
+def masked_mse(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    """MSE loss downweighting imputed points.
+
+    mask: [B, N] — 1 where imputed, 0 where real measurement.
+    Loss weight = 1 - mask, so imputed points contribute 0.
+    """
+    weight = (1.0 - mask).unsqueeze(-1)        # [B, N, 1]
+    sq_err = (pred - target) ** 2              # [B, N, 1]
+    denom = weight.sum() + 1e-8
+    return (sq_err * weight).sum() / denom
+
 
 def evaluate(
     model: STGNNModel,
     loader: DataLoader,
     edge_index: torch.Tensor,
     device: torch.device,
-    pm25_min: float,
-    pm25_max: float,
+    pm10_min: float,
+    pm10_max: float,
 ):
-    """Compute MAE and RMSE in the original PM2.5 scale (µg/m³).
-
-    Returns:
-        mae: float
-        rmse: float
-        last_h_i: torch.Tensor [N, gru_hidden] — embeddings from the last batch.
-    """
+    """MAE and RMSE in original PM10 scale (µg/m³), evaluated on all points."""
     model.eval()
     all_pred, all_true = [], []
-    last_h_i = None
 
     with torch.no_grad():
-        for node_w, edge_w, target in loader:
-            node_w  = node_w.to(device)   # [B, T, N, 6]
-            edge_w  = edge_w.to(device)   # [B, T, E, 5]
-            target  = target.to(device)   # [B, N, 1]
+        for node_w, edge_w, target, _ in loader:
+            node_w  = node_w.to(device)
+            edge_w  = edge_w.to(device)
+            target  = target.to(device)
 
-            pred, h_i = model(node_w, edge_index, edge_w)   # [B,N,1], [B,N,64]
-            last_h_i = h_i
-
-            # Denormalise PM2.5 for metric computation
-            pred_np   = pred.cpu().numpy() * (pm25_max - pm25_min) + pm25_min
-            target_np = target.cpu().numpy() * (pm25_max - pm25_min) + pm25_min
+            pred, _ = model(node_w, edge_index, edge_w)
+            pred_np   = pred.cpu().numpy()   * (pm10_max - pm10_min) + pm10_min
+            target_np = target.cpu().numpy() * (pm10_max - pm10_min) + pm10_min
             all_pred.append(pred_np)
             all_true.append(target_np)
 
-    all_pred = np.concatenate(all_pred, axis=0)   # [total, N, 1]
+    all_pred = np.concatenate(all_pred, axis=0)
     all_true = np.concatenate(all_true, axis=0)
+    mae  = float(np.mean(np.abs(all_pred - all_true)))
+    rmse = float(math.sqrt(np.mean((all_pred - all_true) ** 2)))
+    return mae, rmse
 
-    mae  = np.mean(np.abs(all_pred - all_true))
-    rmse = math.sqrt(np.mean((all_pred - all_true) ** 2))
-    return mae, rmse, last_h_i
 
+# ── Main ──────────────────────────────────────────────────────────────────────
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main training script
-# ──────────────────────────────────────────────────────────────────────────────
+def main(
+    scenario_name: str,
+    graph_mode: str = "static",
+    epochs: int = EPOCHS,
+    window: int = WINDOW,
+):
+    assert graph_mode in GRAPH_MODES, f"graph_mode must be one of {GRAPH_MODES}"
 
-def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
 
-    # ── 1. Generate data ──────────────────────────────────────────────────
-    print("Generating synthetic data...")
-    raw_features = generate_synthetic_data(T=8760, seed=42)  # [T, N, 6]
-    T, N, F = raw_features.shape
-    print(f"  node_features shape: {raw_features.shape}")
+    # ── Output directory: checkpoints/{scenario}/{graph_mode}/ ────────────
+    out_dir = os.path.join("checkpoints", scenario_name, graph_mode)
+    os.makedirs(out_dir, exist_ok=True)
+    checkpoint = os.path.join(out_dir, "best_model.pt")
 
-    # ── 2. Build static graph + precompute full edge features ─────────────
-    print("Building graph...")
-    edge_index_np, static_attr_np, edge_bearings_np = build_static_graph(
-        STATION_COORDS, threshold_km=THRESHOLD_KM
+    print(f"Device: {device} | Scenario: {scenario_name} | Graph mode: {graph_mode}")
+    print(f"  Checkpoint: {checkpoint}")
+
+    # ── 1. Load scenario CSV and split ───────────────────────────────────
+    (train_nodes, val_nodes, test_nodes,
+     train_mask, val_mask, test_mask,
+     coords, feature_cols) = load_scenario_split(scenario_name)
+
+    T_tr, N, F = train_nodes.shape
+    print(f"  Stations: {N}  |  Features ({F}): {feature_cols}")
+    print(f"  Train T: {T_tr}  Val T: {val_nodes.shape[0]}  Test T: {test_nodes.shape[0]}")
+    print(f"  Loss mask: {'yes' if train_mask is not None else 'no'}")
+
+    # ── 2. Load or build graph ────────────────────────────────────────────
+    edge_index_np, static_attr_np, edge_bearings_np = load_or_build_graph(
+        graph_mode, coords, train_nodes, THRESHOLD_KM
     )
     E = edge_index_np.shape[1]
-    print(f"  Nodes: {N}, Edges (directed): {E}")
+    print(f"  Edges: {E}")
 
-    dynamic_attr_np = compute_all_dynamic_edge_features(
-        edge_index_np, raw_features, edge_bearings_np
-    )                                                       # [T, E, 2]
-    full_edge_np = get_full_edge_features(
-        static_attr_np[None].repeat(T, axis=0),            # [T, E, 3]
-        dynamic_attr_np                                     # [T, E, 2]
-    )                                                       # [T, E, 5]
-    print(f"  Edge features shape: {full_edge_np.shape}")
-
-    # ── 3. Train/Val/Test split ───────────────────────────────────────────
-    n_train  = int(T * TRAIN_RATIO)
-    n_val    = int(T * VAL_RATIO)
-    n_test   = T - n_train - n_val
-
-    train_nodes = raw_features[:n_train]         # [T_train, N, 6]
-    val_nodes   = raw_features[n_train:n_train + n_val]
-    test_nodes  = raw_features[n_train + n_val:]
-
-    train_edges = full_edge_np[:n_train]
-    val_edges   = full_edge_np[n_train:n_train + n_val]
-    test_edges  = full_edge_np[n_train + n_val:]
-
-    # ── 4. Normalise node features using training-set statistics ─────────
-    # Shape of stats: [1, 1, 6] for broadcasting over [T, N, 6]
-    feat_min = train_nodes.min(axis=(0, 1), keepdims=True)   # [1, 1, 6]
+    # ── 3. Normalise node features (train stats only) ─────────────────────
+    feat_min = train_nodes.min(axis=(0, 1), keepdims=True)  # [1, 1, F]
     feat_max = train_nodes.max(axis=(0, 1), keepdims=True)
 
-    train_nodes_norm = minmax_normalize(train_nodes, feat_min, feat_max)
-    val_nodes_norm   = minmax_normalize(val_nodes,   feat_min, feat_max)
-    test_nodes_norm  = minmax_normalize(test_nodes,  feat_min, feat_max)
+    train_norm = minmax_normalize(train_nodes, feat_min, feat_max)
+    val_norm   = minmax_normalize(val_nodes,   feat_min, feat_max)
+    test_norm  = minmax_normalize(test_nodes,  feat_min, feat_max)
 
-    # PM2.5 scale factors for denormalisation (channel 0)
-    pm25_min = float(feat_min[0, 0, 0])
-    pm25_max = float(feat_max[0, 0, 0])
+    pm10_idx = feature_cols.index("PM10")
+    pm10_min = float(feat_min[0, 0, pm10_idx])
+    pm10_max = float(feat_max[0, 0, pm10_idx])
 
-    # ── 5. Build tensors and datasets ────────────────────────────────────
-    def to_tensor(arr):
-        return torch.from_numpy(arr)
+    # ── 4. Dynamic edge features (computed from RAW wind values) ──────────
+    def build_full_edges(raw_arr: np.ndarray) -> np.ndarray:
+        T = raw_arr.shape[0]
+        dyn = compute_all_dynamic_edge_features(
+            edge_index_np, raw_arr, edge_bearings_np
+        )                                                      # [T, E, 2]
+        static_rep = np.broadcast_to(
+            static_attr_np[None], (T, E, 3)
+        ).copy()                                               # [T, E, 3]
+        return get_full_edge_features(static_rep, dyn)         # [T, E, 5]
 
-    edge_index_t = to_tensor(edge_index_np).long().to(device)   # [2, E]
+    train_edges = build_full_edges(train_nodes)
+    val_edges   = build_full_edges(val_nodes)
+    test_edges  = build_full_edges(test_nodes)
 
-    train_ds = SeoulPM25Dataset(to_tensor(train_nodes_norm), edge_index_t.cpu(),
-                                to_tensor(train_edges), WINDOW)
-    val_ds   = SeoulPM25Dataset(to_tensor(val_nodes_norm),   edge_index_t.cpu(),
-                                to_tensor(val_edges),   WINDOW)
-    test_ds  = SeoulPM25Dataset(to_tensor(test_nodes_norm),  edge_index_t.cpu(),
-                                to_tensor(test_edges),  WINDOW)
+    # ── 5. Soft-dynamic edge active mask ──────────────────────────────────
+    # wind_alignment is at index 3 of the 5-dim edge feature vector.
+    # active[t, e] = 1 when wind at src blows toward dst, else 0.
+    if graph_mode == "soft_dynamic":
+        def active_mask(edges_np: np.ndarray) -> torch.Tensor:
+            return torch.from_numpy(
+                (edges_np[:, :, 3] > 0).astype(np.float32)   # [T, E]
+            )
+        train_active = active_mask(train_edges)
+        val_active   = active_mask(val_edges)
+        test_active  = active_mask(test_edges)
+    else:
+        train_active = val_active = test_active = None
 
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
-                              num_workers=0, drop_last=False)
-    val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False,
-                              num_workers=0)
-    test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False,
-                              num_workers=0)
+    # ── 6. Datasets & DataLoaders ─────────────────────────────────────────
+    edge_index_t = torch.from_numpy(edge_index_np).long().to(device)
 
-    print(f"  Train samples: {len(train_ds)}, Val: {len(val_ds)}, Test: {len(test_ds)}")
+    def to_t(arr):
+        return torch.from_numpy(arr) if arr is not None else None
 
-    # ── 6. Model, optimiser, loss ─────────────────────────────────────────
+    def make_ds(nodes, edges, loss_mask, edge_active):
+        return STGNNScenarioDataset(
+            node_features=to_t(nodes),
+            edge_index=edge_index_t.cpu(),
+            edge_features_all=to_t(edges),
+            window=window,
+            mask=to_t(loss_mask),
+            pm10_idx=pm10_idx,
+            edge_active_mask=edge_active,
+        )
+
+    train_ds = make_ds(train_norm, train_edges, train_mask, train_active)
+    val_ds   = make_ds(val_norm,   val_edges,   val_mask,   val_active)
+    test_ds  = make_ds(test_norm,  test_edges,  test_mask,  test_active)
+
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
+    val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    print(f"  Samples — Train: {len(train_ds)}  Val: {len(val_ds)}  Test: {len(test_ds)}")
+
+    # ── 7. Model ──────────────────────────────────────────────────────────
     model = STGNNModel(
         node_dim=F,
         edge_dim=5,
@@ -206,78 +263,140 @@ def main():
         num_heads=NUM_HEADS,
         num_nodes=N,
     ).to(device)
-
-    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"  Model parameters: {total_params:,}")
+    print(f"  Parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    criterion = nn.MSELoss()
+    best_val = float("inf")
 
-    # ── 7. Training loop ──────────────────────────────────────────────────
-    best_val_loss = float("inf")
-    print("\nTraining...")
+    # ── 8. Training loop ──────────────────────────────────────────────────
+    t_start = time.time()
+    epoch_bar = tqdm(range(1, epochs + 1), desc="Epochs", leave=True, unit="ep")
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in epoch_bar:
         model.train()
-        train_loss_acc = 0.0
-        n_batches = 0
+        train_loss, nb = 0.0, 0
 
-        for node_w, edge_w, target in train_loader:
+        for node_w, edge_w, target, mask in train_loader:
             node_w  = node_w.to(device)
             edge_w  = edge_w.to(device)
             target  = target.to(device)
+            mask    = mask.to(device)
 
             optimizer.zero_grad()
-            pred, _ = model(node_w, edge_index_t, edge_w)   # [B, N, 1]
-            loss = criterion(pred, target)
+            pred, _ = model(node_w, edge_index_t, edge_w)
+            loss = masked_mse(pred, target, mask)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
+            train_loss += loss.item()
+            nb += 1
 
-            train_loss_acc += loss.item()
-            n_batches += 1
-
-        avg_train = train_loss_acc / n_batches
-
-        # Validation loss (normalised scale)
         model.eval()
-        val_loss_acc = 0.0
-        val_batches = 0
+        val_loss, vb = 0.0, 0
         with torch.no_grad():
-            for node_w, edge_w, target in val_loader:
+            for node_w, edge_w, target, mask in val_loader:
                 node_w  = node_w.to(device)
                 edge_w  = edge_w.to(device)
                 target  = target.to(device)
+                mask    = mask.to(device)
                 pred, _ = model(node_w, edge_index_t, edge_w)
-                val_loss_acc += criterion(pred, target).item()
-                val_batches += 1
-        avg_val = val_loss_acc / val_batches
+                val_loss += masked_mse(pred, target, mask).item()
+                vb += 1
 
-        # Checkpoint
-        if avg_val < best_val_loss:
-            best_val_loss = avg_val
-            torch.save(model.state_dict(), CHECKPOINT)
+        avg_val = val_loss / vb
+        if avg_val < best_val:
+            best_val = avg_val
+            torch.save(model.state_dict(), checkpoint)
 
-        if epoch % 5 == 0:
-            print(f"  Epoch [{epoch:3d}/{EPOCHS}]  "
-                  f"Train Loss: {avg_train:.6f}  "
-                  f"Val Loss: {avg_val:.6f}")
+        epoch_bar.set_postfix(train=f"{train_loss/nb:.4f}", val=f"{avg_val:.4f}", best=f"{best_val:.4f}")
 
-    print(f"\nBest validation loss: {best_val_loss:.6f}")
+    elapsed = time.time() - t_start
+    print(f"\nBest Val Loss: {best_val:.6f}  |  학습 시간: {elapsed/60:.1f}분")
 
-    # ── 8. Load best model and evaluate on test set ───────────────────────
-    model.load_state_dict(torch.load(CHECKPOINT, map_location=device))
-    mae, rmse, last_h_i = evaluate(
-        model, test_loader, edge_index_t, device, pm25_min, pm25_max
-    )
+    # ── 9. Test evaluation ────────────────────────────────────────────────
+    model.load_state_dict(torch.load(checkpoint, map_location=device))
+    mae, rmse = evaluate(model, test_loader, edge_index_t, device, pm10_min, pm10_max)
+    print(f"Test MAE:  {mae:.2f} µg/m³")
+    print(f"Test RMSE: {rmse:.2f} µg/m³")
 
-    print(f"\nTest MAE: {mae:.2f}")
-    print(f"Test RMSE: {rmse:.2f}")
+    return {"scenario": scenario_name, "graph_mode": graph_mode,
+            "mae": mae, "rmse": rmse, "elapsed_min": elapsed / 60}
 
-    # h_i for a single sample: take first item in last batch
-    h_i_single = last_h_i[0]   # [N, gru_hidden]
-    print(f"Node embeddings h_i shape: {list(h_i_single.shape)}")
+
+def run_all(
+    scenarios: list = None,
+    graph_modes: list = None,
+    epochs: int = EPOCHS,
+    window: int = WINDOW,
+):
+    """Run all scenario × graph_mode combinations sequentially."""
+    scenarios   = scenarios   or ALL_SCENARIOS
+    graph_modes = graph_modes or list(GRAPH_MODES)
+
+    combos = [(s, g) for s in scenarios for g in graph_modes]
+    total  = len(combos)
+
+    print(f"총 {total}개 실험 시작 ({len(scenarios)}개 시나리오 × {len(graph_modes)}개 그래프 모드)\n")
+
+    results = []
+    combo_bar = tqdm(combos, desc="실험 전체", unit="exp")
+
+    for scenario, graph_mode in combo_bar:
+        combo_bar.set_description(f"{scenario} | {graph_mode}")
+        try:
+            result = main(scenario, graph_mode, epochs, window)
+            results.append(result)
+        except Exception as e:
+            tqdm.write(f"[ERROR] {scenario} × {graph_mode}: {e}")
+            results.append({"scenario": scenario, "graph_mode": graph_mode,
+                            "mae": None, "rmse": None, "elapsed_min": None})
+
+    # 전체 결과 요약
+    print("\n" + "=" * 70)
+    print(f"{'시나리오':<45} {'모드':<16} {'MAE':>7} {'RMSE':>7} {'시간(분)':>8}")
+    print("-" * 70)
+    for r in results:
+        mae_s  = f"{r['mae']:.2f}"  if r["mae"]  is not None else "ERROR"
+        rmse_s = f"{r['rmse']:.2f}" if r["rmse"] is not None else "ERROR"
+        time_s = f"{r['elapsed_min']:.1f}" if r["elapsed_min"] is not None else "-"
+        print(f"{r['scenario']:<45} {r['graph_mode']:<16} {mae_s:>7} {rmse_s:>7} {time_s:>8}")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+
+    # ── 단일 실험 인자 ─────────────────────────────────────────────────────
+    parser.add_argument(
+        "--scenario", type=str, default="S1_transport_pm10",
+        help="Scenario name (단일 실험 시 사용)"
+    )
+    parser.add_argument(
+        "--graph_mode", type=str, default="static", choices=GRAPH_MODES,
+        help="Graph mode (단일 실험 시 사용)"
+    )
+
+    # ── 전체 실험 인자 ─────────────────────────────────────────────────────
+    parser.add_argument(
+        "--all", action="store_true",
+        help="모든 시나리오 × 그래프 모드 조합 실행"
+    )
+    parser.add_argument(
+        "--scenarios", nargs="+", default=None,
+        help="--all 시 특정 시나리오만 선택 (e.g. S1_transport_pm10 S3_transport_pm10_pollutants)"
+    )
+    parser.add_argument(
+        "--graph_modes", nargs="+", default=None, choices=GRAPH_MODES,
+        help="--all 시 특정 그래프 모드만 선택 (e.g. static climatological)"
+    )
+
+    # ── 공통 인자 ─────────────────────────────────────────────────────────
+    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--window", type=int, default=WINDOW)
+
+    args = parser.parse_args()
+
+    if args.all:
+        run_all(args.scenarios, args.graph_modes, args.epochs, args.window)
+    else:
+        main(args.scenario, args.graph_mode, args.epochs, args.window)
