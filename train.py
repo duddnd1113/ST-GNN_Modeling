@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import csv
 import math
 import os
 import time
@@ -34,8 +35,9 @@ from graph_builder import (
 )
 from model import STGNNModel
 
-GRAPH_MODES = ("static", "climatological", "soft_dynamic")
-GRAPH_DIR   = "graphs"
+GRAPH_MODES  = ("static", "climatological", "soft_dynamic")
+GRAPH_DIR    = "graphs"
+ALL_WINDOWS  = (12, 24, 48)
 
 ALL_SCENARIOS = [
     "S1_transport_pm10",
@@ -150,6 +152,42 @@ def evaluate(
     return mae, rmse
 
 
+def save_loss_history(history, out_dir):
+    """Save per-epoch train/validation loss as CSV and PNG."""
+    csv_path = os.path.join(out_dir, "loss_history.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["epoch", "train_loss", "val_loss"])
+        writer.writeheader()
+        writer.writerows(history)
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print(f"  Loss history CSV saved: {csv_path}")
+        print("  matplotlib not installed; skipped loss curve PNG.")
+        return
+
+    png_path = os.path.join(out_dir, "loss_curve.png")
+    epochs = [row["epoch"] for row in history]
+    train_losses = [row["train_loss"] for row in history]
+    val_losses = [row["val_loss"] for row in history]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epochs, train_losses, label="Train loss", linewidth=2)
+    ax.plot(epochs, val_losses, label="Val loss", linewidth=2)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Masked MSE loss")
+    ax.set_title("Training Loss Curve")
+    ax.grid(alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=180)
+    plt.close(fig)
+
+    print(f"  Loss history CSV saved: {csv_path}")
+    print(f"  Loss curve PNG saved: {png_path}")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(
@@ -162,8 +200,8 @@ def main(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # ── Output directory: checkpoints/{scenario}/{graph_mode}/ ────────────
-    out_dir = os.path.join("checkpoints", scenario_name, graph_mode)
+    # ── Output directory: checkpoints/window_{W}/{scenario}/{graph_mode}/ ──
+    out_dir = os.path.join("checkpoints", f"window_{window}", scenario_name, graph_mode)
     os.makedirs(out_dir, exist_ok=True)
     checkpoint = os.path.join(out_dir, "best_model.pt")
 
@@ -267,6 +305,7 @@ def main(
 
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
     best_val = float("inf")
+    loss_history = []
 
     # ── 8. Training loop ──────────────────────────────────────────────────
     t_start = time.time()
@@ -303,14 +342,21 @@ def main(
                 val_loss += masked_mse(pred, target, mask).item()
                 vb += 1
 
+        avg_train = train_loss / nb
         avg_val = val_loss / vb
+        loss_history.append({
+            "epoch": epoch,
+            "train_loss": avg_train,
+            "val_loss": avg_val,
+        })
         if avg_val < best_val:
             best_val = avg_val
             torch.save(model.state_dict(), checkpoint)
 
-        epoch_bar.set_postfix(train=f"{train_loss/nb:.4f}", val=f"{avg_val:.4f}", best=f"{best_val:.4f}")
+        epoch_bar.set_postfix(train=f"{avg_train:.4f}", val=f"{avg_val:.4f}", best=f"{best_val:.4f}")
 
     elapsed = time.time() - t_start
+    save_loss_history(loss_history, out_dir)
     print(f"\nBest Val Loss: {best_val:.6f}  |  학습 시간: {elapsed/60:.1f}분")
 
     # ── 9. Test evaluation ────────────────────────────────────────────────
@@ -319,48 +365,66 @@ def main(
     print(f"Test MAE:  {mae:.2f} µg/m³")
     print(f"Test RMSE: {rmse:.2f} µg/m³")
 
-    return {"scenario": scenario_name, "graph_mode": graph_mode,
-            "mae": mae, "rmse": rmse, "elapsed_min": elapsed / 60}
+    # 테스트 지표 저장
+    import json
+    metrics = {
+        "scenario": scenario_name, "graph_mode": graph_mode,
+        "mae": mae, "rmse": rmse,
+        "best_val_loss": best_val, "elapsed_min": elapsed / 60,
+        "epochs": epochs, "window": window,
+        "n_features": F, "n_nodes": N, "n_edges": E,
+    }
+    with open(os.path.join(out_dir, "metrics.json"), "w") as f:
+        json.dump(metrics, f, indent=2)
+
+    return metrics
 
 
 def run_all(
     scenarios: list = None,
     graph_modes: list = None,
+    windows: list = None,
     epochs: int = EPOCHS,
-    window: int = WINDOW,
 ):
-    """Run all scenario × graph_mode combinations sequentially."""
+    """Run all window × scenario × graph_mode combinations sequentially."""
     scenarios   = scenarios   or ALL_SCENARIOS
     graph_modes = graph_modes or list(GRAPH_MODES)
+    windows     = windows     or list(ALL_WINDOWS)
 
-    combos = [(s, g) for s in scenarios for g in graph_modes]
+    combos = [(w, s, g) for w in windows for s in scenarios for g in graph_modes]
     total  = len(combos)
 
-    print(f"총 {total}개 실험 시작 ({len(scenarios)}개 시나리오 × {len(graph_modes)}개 그래프 모드)\n")
+    print(
+        f"총 {total}개 실험 시작 "
+        f"({len(windows)}개 윈도우 × {len(scenarios)}개 시나리오 × {len(graph_modes)}개 그래프 모드)\n"
+    )
 
     results = []
     combo_bar = tqdm(combos, desc="실험 전체", unit="exp")
 
-    for scenario, graph_mode in combo_bar:
-        combo_bar.set_description(f"{scenario} | {graph_mode}")
+    for window, scenario, graph_mode in combo_bar:
+        combo_bar.set_description(f"w={window} | {scenario} | {graph_mode}")
         try:
             result = main(scenario, graph_mode, epochs, window)
             results.append(result)
         except Exception as e:
-            tqdm.write(f"[ERROR] {scenario} × {graph_mode}: {e}")
-            results.append({"scenario": scenario, "graph_mode": graph_mode,
+            tqdm.write(f"[ERROR] w={window} {scenario} × {graph_mode}: {e}")
+            results.append({"window": window, "scenario": scenario,
+                            "graph_mode": graph_mode,
                             "mae": None, "rmse": None, "elapsed_min": None})
 
     # 전체 결과 요약
-    print("\n" + "=" * 70)
-    print(f"{'시나리오':<45} {'모드':<16} {'MAE':>7} {'RMSE':>7} {'시간(분)':>8}")
-    print("-" * 70)
+    W = 6
+    print("\n" + "=" * 85)
+    print(f"{'윈도우':>{W}} {'시나리오':<45} {'모드':<16} {'MAE':>7} {'RMSE':>7} {'시간(분)':>8}")
+    print("-" * 85)
     for r in results:
         mae_s  = f"{r['mae']:.2f}"  if r["mae"]  is not None else "ERROR"
         rmse_s = f"{r['rmse']:.2f}" if r["rmse"] is not None else "ERROR"
         time_s = f"{r['elapsed_min']:.1f}" if r["elapsed_min"] is not None else "-"
-        print(f"{r['scenario']:<45} {r['graph_mode']:<16} {mae_s:>7} {rmse_s:>7} {time_s:>8}")
-    print("=" * 70)
+        print(f"{r.get('window', '-'):>{W}} {r['scenario']:<45} {r['graph_mode']:<16} "
+              f"{mae_s:>7} {rmse_s:>7} {time_s:>8}")
+    print("=" * 85)
 
 
 if __name__ == "__main__":
@@ -379,24 +443,30 @@ if __name__ == "__main__":
     # ── 전체 실험 인자 ─────────────────────────────────────────────────────
     parser.add_argument(
         "--all", action="store_true",
-        help="모든 시나리오 × 그래프 모드 조합 실행"
+        help="모든 window × 시나리오 × 그래프 모드 조합 실행"
     )
     parser.add_argument(
         "--scenarios", nargs="+", default=None,
-        help="--all 시 특정 시나리오만 선택 (e.g. S1_transport_pm10 S3_transport_pm10_pollutants)"
+        help="--all 시 특정 시나리오만 선택"
     )
     parser.add_argument(
         "--graph_modes", nargs="+", default=None, choices=GRAPH_MODES,
-        help="--all 시 특정 그래프 모드만 선택 (e.g. static climatological)"
+        help="--all 시 특정 그래프 모드만 선택"
+    )
+    parser.add_argument(
+        "--windows", nargs="+", type=int, default=None,
+        help=f"--all 시 특정 윈도우만 선택 (기본: {list(ALL_WINDOWS)})"
     )
 
     # ── 공통 인자 ─────────────────────────────────────────────────────────
     parser.add_argument("--epochs", type=int, default=EPOCHS)
-    parser.add_argument("--window", type=int, default=WINDOW)
+    parser.add_argument("--window", type=int, default=WINDOW,
+                        help="단일 실험용 윈도우 크기")
 
     args = parser.parse_args()
 
     if args.all:
-        run_all(args.scenarios, args.graph_modes, args.epochs, args.window)
+        run_all(args.scenarios, args.graph_modes, args.windows, args.epochs)
     else:
         main(args.scenario, args.graph_mode, args.epochs, args.window)
+
