@@ -1,0 +1,13 @@
+{
+  "scenario": "S2_transport_pm10_pm10mask",
+  "graph_mode": "static",
+  "mae": 2.805608034133911,
+  "rmse": 4.05375740099998,
+  "best_val_loss": 0.00015039220907479026,
+  "elapsed_min": 42.67729723056157,
+  "epochs": 100,
+  "window": 12,
+  "n_features": 5,
+  "n_nodes": 40,
+  "n_edges": 706
+}

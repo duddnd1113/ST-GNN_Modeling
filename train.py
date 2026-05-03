@@ -470,3 +470,14 @@ if __name__ == "__main__":
     else:
         main(args.scenario, args.graph_mode, args.epochs, args.window)
 
+# # 단일 실험
+# python3 train.py --scenario S1_transport_pm10 --graph_mode static --window 24
+
+# # 전체 90개 (3 window × 10 scenario × 3 mode)
+# python3 train.py --all
+
+# # window만 ablation (30개)
+# python3 train.py --all --scenario S1_transport_pm10 --graph_modes static
+
+# # 특정 window만 선택
+# python3 train.py --all --windows 12 24

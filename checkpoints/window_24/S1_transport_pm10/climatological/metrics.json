@@ -1,0 +1,13 @@
+{
+  "scenario": "S1_transport_pm10",
+  "graph_mode": "climatological",
+  "mae": 3.191394805908203,
+  "rmse": 4.882008136872196,
+  "best_val_loss": 0.0002098348434254363,
+  "elapsed_min": 57.762088406085965,
+  "epochs": 100,
+  "window": 24,
+  "n_features": 5,
+  "n_nodes": 40,
+  "n_edges": 396
+}
