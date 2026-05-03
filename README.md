@@ -128,6 +128,6 @@ This project reframes air pollution modeling as:
 ## 👤 Author
 
 Yonsei University
-Industrial Engineering & Urban Planning and Engineering & Quantitative Risk Management
+Industrial Engineering @duddnd1113 @dddlmss & Urban Planning and Engineering @tak & Quantitative Risk Management @sonyein
 
 ---
