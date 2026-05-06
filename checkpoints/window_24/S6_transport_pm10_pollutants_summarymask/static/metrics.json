@@ -1,0 +1,13 @@
+{
+  "scenario": "S6_transport_pm10_pollutants_summarymask",
+  "graph_mode": "static",
+  "mae": 2.8399641513824463,
+  "rmse": 4.073904842817878,
+  "best_val_loss": 0.00015533856494585053,
+  "elapsed_min": 72.46729259490967,
+  "epochs": 100,
+  "window": 24,
+  "n_features": 9,
+  "n_nodes": 40,
+  "n_edges": 706
+}

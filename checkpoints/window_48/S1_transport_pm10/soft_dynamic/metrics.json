@@ -1,0 +1,13 @@
+{
+  "scenario": "S1_transport_pm10",
+  "graph_mode": "soft_dynamic",
+  "mae": 2.899362087249756,
+  "rmse": 4.134915082029582,
+  "best_val_loss": 0.0001576549347887254,
+  "elapsed_min": 140.98544110854468,
+  "epochs": 100,
+  "window": 48,
+  "n_features": 5,
+  "n_nodes": 40,
+  "n_edges": 706
+}

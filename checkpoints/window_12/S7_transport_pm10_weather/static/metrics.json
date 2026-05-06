@@ -1,0 +1,13 @@
+{
+  "scenario": "S7_transport_pm10_weather",
+  "graph_mode": "static",
+  "mae": 2.6985316276550293,
+  "rmse": 3.8028671641154803,
+  "best_val_loss": 0.00015262888404703157,
+  "elapsed_min": 31.81371676127116,
+  "epochs": 100,
+  "window": 12,
+  "n_features": 10,
+  "n_nodes": 40,
+  "n_edges": 706
+}

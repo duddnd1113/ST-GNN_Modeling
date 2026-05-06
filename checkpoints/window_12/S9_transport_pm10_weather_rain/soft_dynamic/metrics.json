@@ -1,0 +1,13 @@
+{
+  "scenario": "S9_transport_pm10_weather_rain",
+  "graph_mode": "soft_dynamic",
+  "mae": 2.831242799758911,
+  "rmse": 4.01825577468946,
+  "best_val_loss": 0.00015580015569021058,
+  "elapsed_min": 45.14145917892456,
+  "epochs": 100,
+  "window": 12,
+  "n_features": 13,
+  "n_nodes": 40,
+  "n_edges": 706
+}

@@ -1,0 +1,7 @@
+# Python 3.6.9-compatible support packages for this routing code.
+# NOTE: torch==1.11.0 may not install cleanly on Python 3.6 from official wheels.
+# If Python 3.6.9 is mandatory, torch==1.10.2 is usually safer.
+numpy==1.19.5
+pandas==1.1.5
+dataclasses==0.8
+# torch should be installed separately according to CUDA/Python compatibility.

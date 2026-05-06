@@ -1,0 +1,13 @@
+{
+  "scenario": "S10_transport_all_summarymask",
+  "graph_mode": "soft_dynamic",
+  "mae": 2.670318603515625,
+  "rmse": 3.8614484028276483,
+  "best_val_loss": 0.00013902991422048004,
+  "elapsed_min": 53.44733533859253,
+  "epochs": 100,
+  "window": 48,
+  "n_features": 18,
+  "n_nodes": 40,
+  "n_edges": 706
+}

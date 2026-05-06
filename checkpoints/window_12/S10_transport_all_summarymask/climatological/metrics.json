@@ -1,0 +1,13 @@
+{
+  "scenario": "S10_transport_all_summarymask",
+  "graph_mode": "climatological",
+  "mae": 3.2662084102630615,
+  "rmse": 5.028535477862717,
+  "best_val_loss": 0.00018902766947407102,
+  "elapsed_min": 37.79115146795909,
+  "epochs": 100,
+  "window": 12,
+  "n_features": 18,
+  "n_nodes": 40,
+  "n_edges": 396
+}

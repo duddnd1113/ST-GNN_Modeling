@@ -1,0 +1,13 @@
+{
+  "scenario": "S4_transport_pm10_pollutants_pm10mask",
+  "graph_mode": "soft_dynamic",
+  "mae": 2.788853168487549,
+  "rmse": 3.9595458465785223,
+  "best_val_loss": 0.00015442431694656774,
+  "elapsed_min": 51.73100678126017,
+  "epochs": 100,
+  "window": 48,
+  "n_features": 9,
+  "n_nodes": 40,
+  "n_edges": 706
+}
