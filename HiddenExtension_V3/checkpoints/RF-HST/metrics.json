@@ -1,0 +1,20 @@
+{
+  "exp_id": "RF-HST",
+  "use_hidden": true,
+  "idw_method": "wind",
+  "pca_k": null,
+  "use_lur": true,
+  "use_population": false,
+  "use_temporal": true,
+  "n_features": 82,
+  "n_train": 511520,
+  "val_mae": 4.621771083620564,
+  "val_rmse": 7.333597551496798,
+  "val_r2": 0.9104271785807824,
+  "test_mae": 3.2342808710399513,
+  "test_rmse": 4.325052624868881,
+  "test_r2": 0.8386390021437037,
+  "test_adj_r2": 0.8385178302999331,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 1.18
+}

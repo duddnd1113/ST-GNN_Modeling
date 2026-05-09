@@ -1,0 +1,20 @@
+{
+  "exp_id": "RF-S",
+  "use_hidden": false,
+  "idw_method": null,
+  "pca_k": null,
+  "use_lur": true,
+  "use_population": false,
+  "use_temporal": false,
+  "n_features": 9,
+  "n_train": 511520,
+  "val_mae": 19.306460894396363,
+  "val_rmse": 27.66765851268387,
+  "val_r2": -0.2749317040335535,
+  "test_mae": 12.083972116779508,
+  "test_rmse": 15.282871783881955,
+  "test_r2": -1.0147711242437398,
+  "test_adj_r2": -1.0149370704331622,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 0.4
+}

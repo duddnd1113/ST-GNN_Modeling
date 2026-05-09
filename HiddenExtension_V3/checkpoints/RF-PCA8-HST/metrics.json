@@ -1,0 +1,20 @@
+{
+  "exp_id": "RF-PCA8-HST",
+  "use_hidden": true,
+  "idw_method": "wind",
+  "pca_k": 8,
+  "use_lur": true,
+  "use_population": false,
+  "use_temporal": true,
+  "n_features": 26,
+  "n_train": 511520,
+  "val_mae": 7.250037723852079,
+  "val_rmse": 10.39912679188778,
+  "val_r2": 0.8198908178292503,
+  "test_mae": 5.3791309065006425,
+  "test_rmse": 6.865514065647155,
+  "test_r2": 0.5934051240658389,
+  "test_adj_r2": 0.5933083627249669,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 0.61
+}

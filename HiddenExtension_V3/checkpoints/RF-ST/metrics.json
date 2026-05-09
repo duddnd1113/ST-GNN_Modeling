@@ -1,0 +1,20 @@
+{
+  "exp_id": "RF-ST",
+  "use_hidden": false,
+  "idw_method": null,
+  "pca_k": null,
+  "use_lur": true,
+  "use_population": false,
+  "use_temporal": true,
+  "n_features": 18,
+  "n_train": 511520,
+  "val_mae": 22.014245226644228,
+  "val_rmse": 34.69474239537104,
+  "val_r2": -1.0047925598950882,
+  "test_mae": 10.103388141879888,
+  "test_rmse": 12.884562386296944,
+  "test_r2": -0.4320399180006451,
+  "test_adj_r2": -0.43227583675046466,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 0.39
+}

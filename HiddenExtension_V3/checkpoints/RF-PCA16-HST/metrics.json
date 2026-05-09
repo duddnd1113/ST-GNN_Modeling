@@ -1,0 +1,20 @@
+{
+  "exp_id": "RF-PCA16-HST",
+  "use_hidden": true,
+  "idw_method": "wind",
+  "pca_k": 16,
+  "use_lur": true,
+  "use_population": false,
+  "use_temporal": true,
+  "n_features": 34,
+  "n_train": 511520,
+  "val_mae": 5.955085700992483,
+  "val_rmse": 8.840799542242761,
+  "val_r2": 0.8698257170031783,
+  "test_mae": 4.479400543083662,
+  "test_rmse": 5.751277802829888,
+  "test_r2": 0.7146719487737772,
+  "test_adj_r2": 0.7145831469637017,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 0.71
+}

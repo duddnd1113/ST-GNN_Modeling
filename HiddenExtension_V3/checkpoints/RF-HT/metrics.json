@@ -1,0 +1,20 @@
+{
+  "exp_id": "RF-HT",
+  "use_hidden": true,
+  "idw_method": "wind",
+  "pca_k": null,
+  "use_lur": false,
+  "use_population": false,
+  "use_temporal": true,
+  "n_features": 73,
+  "n_train": 511520,
+  "val_mae": 4.611430665604769,
+  "val_rmse": 7.334566411751606,
+  "val_r2": 0.9104035096301555,
+  "test_mae": 3.217816401920827,
+  "test_rmse": 4.308540029025562,
+  "test_r2": 0.8398687687171649,
+  "test_adj_r2": 0.839761727163737,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 1.13
+}

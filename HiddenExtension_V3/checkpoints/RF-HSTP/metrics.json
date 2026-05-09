@@ -1,0 +1,20 @@
+{
+  "exp_id": "RF-HSTP",
+  "use_hidden": true,
+  "idw_method": "wind",
+  "pca_k": null,
+  "use_lur": true,
+  "use_population": true,
+  "use_temporal": true,
+  "n_features": 83,
+  "n_train": 511520,
+  "val_mae": 4.618478817351678,
+  "val_rmse": 7.329652090819885,
+  "val_r2": 0.9105235326488313,
+  "test_mae": 3.2233940868864432,
+  "test_rmse": 4.317106133615147,
+  "test_r2": 0.8392313999322045,
+  "test_adj_r2": 0.8391091995420288,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 1.21
+}
