@@ -304,13 +304,15 @@ def main(phase1_only: bool = False):
         "r_dim": R_DIM, "n_heads": N_HEADS_ATT,
     }
 
+    sp_str = f"{final_spatial_mae:.4f}" if final_spatial_mae is not None else "N/A"
     print(f"\n{'='*60}")
     print(f"  최종 결과")
     print(f"  Val forecast MAE : {final_forecast_mae:.4f}")
-    print(f"  Val spatial  MAE : {final_spatial_mae:.4f if final_spatial_mae else 'N/A'}")
+    print(f"  Val spatial  MAE : {sp_str}")
     if stgnn_mae:
         diff = final_forecast_mae - stgnn_mae
-        print(f"  ST-GNN baseline  : {stgnn_mae:.4f}  ({'↑개선' if diff<0 else '↓악화'} {abs(diff):.4f})")
+        sign = "↑개선" if diff < 0 else "↓악화"
+        print(f"  ST-GNN baseline  : {stgnn_mae:.4f}  ({sign} {abs(diff):.4f})")
     print(f"{'='*60}")
 
     with open(os.path.join(CKPT_DIR, "metrics.json"), "w") as f:
