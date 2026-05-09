@@ -1,0 +1,11 @@
+{
+  "NDVI": -0.440943,
+  "IBI": -0.022513,
+  "buildings_%": -0.002177,
+  "greenspace_%": -0.170052,
+  "road_struc_%": 0.195974,
+  "river_zone_%": 0.222123,
+  "elev_mean": 0.114032,
+  "sum_area": 0.095238,
+  "sum_height": -0.146752
+}

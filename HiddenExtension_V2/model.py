@@ -19,24 +19,33 @@ from utils import spatial_features_batch
 
 
 class SpatialAttentionScore(nn.Module):
+    """
+    attn_mode='full'        : [dist, sin, cos, X_tgt, X_src, u_src, v_src]
+    attn_mode='spatial_only': [dist, sin, cos]
+    wind (u, v) 는 항상 source 측정소 기준 — target 위치로의 방향과 조합해
+    upstream/downstream 관계를 학습함.
+    """
     def __init__(self, x_dim: int, hidden: int = 32, dropout: float = 0.1,
                  attn_mode: str = 'full'):
         super().__init__()
         self.attn_mode = attn_mode
-        in_dim = 3 if attn_mode == 'spatial_only' else 3 + 2 * x_dim
+        # spatial_only: 3 / full: 3 + 2*x_dim + 2(wind)
+        in_dim = 3 if attn_mode == 'spatial_only' else 3 + 2 * x_dim + 2
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden), nn.ReLU(), nn.Dropout(dropout),
             nn.Linear(hidden, hidden), nn.ReLU(), nn.Dropout(dropout),
             nn.Linear(hidden, 1),
         )
 
-    def forward(self, sp_feat, X_target, X_sources):
+    def forward(self, sp_feat, X_target, X_sources, wind_sources):
+        # sp_feat     : (B, N_src, 3)
+        # wind_sources: (B, N_src, 2)
         if self.attn_mode == 'spatial_only':
             inp = sp_feat
         else:
             B, N_src, _ = X_sources.shape
             x_tgt_rep = X_target.unsqueeze(1).expand(-1, N_src, -1)
-            inp = torch.cat([sp_feat, x_tgt_rep, X_sources], dim=-1)
+            inp = torch.cat([sp_feat, x_tgt_rep, X_sources, wind_sources], dim=-1)
         return self.net(inp).squeeze(-1)   # (B, N_src)
 
 
@@ -102,9 +111,10 @@ class JointHiddenExtensionModel(nn.Module):
             inp = torch.cat([X, r], dim=-1) if self.x_dim > 0 else r
             return self.lur_mlp(inp).squeeze(-1)
 
-    def _cross_attention(self, h_sources, coords_target, coords_sources, X_target, X_sources):
+    def _cross_attention(self, h_sources, coords_target, coords_sources,
+                         X_target, X_sources, wind_sources):
         sp_feat = spatial_features_batch(coords_target, coords_sources)
-        scores  = self.attention(sp_feat, X_target, X_sources)
+        scores  = self.attention(sp_feat, X_target, X_sources, wind_sources)
         alpha   = F.softmax(scores, dim=-1)
         return (alpha.unsqueeze(-1) * h_sources).sum(dim=1)
 
@@ -115,12 +125,13 @@ class JointHiddenExtensionModel(nn.Module):
         coords_sources: torch.Tensor,
         X_target:       torch.Tensor,
         X_sources:      torch.Tensor,
+        wind_sources:   torch.Tensor,
         h_target: Optional[torch.Tensor] = None,
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
 
         # Cross-attention path
-        h_cross  = self._cross_attention(h_sources, coords_target,
-                                         coords_sources, X_target, X_sources)
+        h_cross  = self._cross_attention(h_sources, coords_target, coords_sources,
+                                         X_target, X_sources, wind_sources)
         r_cross  = self.compressor_cross(h_cross)
         pm_cross = self._lur_head(X_target, r_cross)
 

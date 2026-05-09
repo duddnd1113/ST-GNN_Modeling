@@ -21,7 +21,7 @@ from tqdm import tqdm
 from config import (
     H_DIM, R_DIM, ATT_HIDDEN, DROPOUT,
     HIDDEN_DIR, GRID_CSV_PATH,
-    NDVI_PATH, IBI_PATH, LC_PATH, BLDG_PATH,
+    NDVI_PATH, IBI_PATH, LC_PATH, BLDG_PATH, WIND_PATH,
     TIME_IDX, STGNN_WINDOW,
     X_MODE, LUR_MODE, ATTN_MODE, LAMBDA,
 )
@@ -94,9 +94,10 @@ def run(r_dim: int = R_DIM, lam: float = LAMBDA,
     ckpt_dir = cfg_to_dir(r_dim, lam, x_mode, lur_mode, attn_mode)
     ckpt_path = os.path.join(os.path.dirname(__file__), "checkpoints", ckpt_dir, "best_model.pt")
 
-    train_ds = PseudoGridDataset("train", x_mode=x_mode)
-    X_scaler = train_ds.X_scaler
-    x_dim    = train_ds.X.shape[-1]
+    train_ds     = PseudoGridDataset("train", x_mode=x_mode)
+    X_scaler     = train_ds.X_scaler
+    wind_scaler  = train_ds.wind_scaler
+    x_dim        = train_ds.X.shape[-1]
 
     model = JointHiddenExtensionModel(
         h_dim=H_DIM, x_dim=x_dim, r_dim=r_dim,
@@ -120,6 +121,7 @@ def run(r_dim: int = R_DIM, lam: float = LAMBDA,
     ibi_all  = np.load(IBI_PATH)    # [T_all, G]
     lc_all   = np.load(LC_PATH)     # [G, 4]
     bldg_all = np.load(BLDG_PATH)   # [G, 3]
+    wind_all = np.load(WIND_PATH)   # [T_all, N, 2]
 
     # 측정소 정적 피처
     lc_sta   = lc_all[sta_to_grid]    # [N, 4]
@@ -146,24 +148,32 @@ def run(r_dim: int = R_DIM, lam: float = LAMBDA,
 
     with torch.no_grad():
         for i, global_t in enumerate(tqdm(target_global_idx, desc="Grid inference")):
-            h_t = h_test[i].to(device)
+            h_t = h_test[i].to(device)   # [N, 64]
 
             X_sta_t = _build_X(
                 ndvi_all[global_t][sta_to_grid], ibi_all[global_t][sta_to_grid],
                 lc_sta, bldg_sta, X_scaler, sl
-            ).to(device)
+            ).to(device)                  # [N, x_dim]
 
             X_grid_t = _build_X(
                 ndvi_all[global_t], ibi_all[global_t],
                 lc_all, bldg_all, X_scaler, sl
-            ).to(device)
+            ).to(device)                  # [G, x_dim]
+
+            # 풍속: 측정소 기준 [N, 2] → 정규화
+            wind_sta_t = torch.from_numpy(
+                wind_scaler.transform(
+                    wind_all[global_t].astype(np.float32)   # [N, 2]
+                ).astype(np.float32)
+            ).to(device)                  # [N, 2]
 
             pred = model(
-                h_t.unsqueeze(0).expand(G, -1, -1),
-                grid_coords,
-                coords_sta.unsqueeze(0).expand(G, -1, -1),
-                X_grid_t,
-                X_sta_t.unsqueeze(0).expand(G, -1, -1),
+                h_t.unsqueeze(0).expand(G, -1, -1),              # [G, N, 64]
+                grid_coords,                                       # [G, 2]
+                coords_sta.unsqueeze(0).expand(G, -1, -1),        # [G, N, 2]
+                X_grid_t,                                          # [G, x_dim]
+                X_sta_t.unsqueeze(0).expand(G, -1, -1),           # [G, N, x_dim]
+                wind_sta_t.unsqueeze(0).expand(G, -1, -1),        # [G, N, 2]
             )
             all_pm[i] = pred.cpu().numpy()
 

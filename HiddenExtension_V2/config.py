@@ -21,6 +21,7 @@ NDVI_PATH     = os.path.join(GRID_DIR, "ndvi_hourly.npy")
 IBI_PATH      = os.path.join(GRID_DIR, "ibi_hourly.npy")
 LC_PATH       = os.path.join(GRID_DIR, "landcover_static.npy")
 BLDG_PATH     = os.path.join(GRID_DIR, "building_stats_static.npy")  # [G,3] 신규
+WIND_PATH     = os.path.join(GRID_DIR, "wind_all.npy")               # [T_all,N,2] 신규
 GRID_CSV_PATH = os.path.join(GRID_DIR, "격자_250m_4326.csv")
 TIME_IDX = {
     "train": os.path.join(GRID_DIR, "time_idx_train.npy"),
@@ -43,7 +44,7 @@ ATT_HIDDEN = 32
 DROPOUT    = 0.1
 
 # ── Joint training ────────────────────────────────────────────────────────────
-LAMBDA = 0.3   # cross 70% 가중 (V1=0.5 보다 cross 강화)
+LAMBDA = 0.5   # V1 결과상 lam=0.5가 cross MAE도 더 좋음
 
 # ── Ablation 설정 ─────────────────────────────────────────────────────────────
 # x_mode:

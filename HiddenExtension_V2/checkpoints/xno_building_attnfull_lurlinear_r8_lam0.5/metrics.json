@@ -1,0 +1,18 @@
+{
+  "r_dim": 8,
+  "lam": 0.5,
+  "x_mode": "no_building",
+  "lur_mode": "linear",
+  "attn_mode": "full",
+  "x_dim": 6,
+  "best_val": 47.79199981243811,
+  "direct_mae": 2.6559972763061523,
+  "direct_rmse": 3.741931915283203,
+  "direct_r2": 0.8792165219783783,
+  "direct_adj_r2": 0.8792098899570361,
+  "cross_mae": 3.4491512775421143,
+  "cross_rmse": 4.749297618865967,
+  "cross_r2": 0.8054305911064148,
+  "cross_adj_r2": 0.8054199076214427,
+  "stgnn_mae": 2.6143953800201416
+}

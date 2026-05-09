@@ -31,11 +31,11 @@ from model import JointHiddenExtensionModel
 
 # ── Ablation 정의 ─────────────────────────────────────────────────────────────
 # BASE: V1 best(r=8) + cross 강화(lam=0.3) + 9차원 피처
-BASE = dict(r_dim=8, lam=0.3, x_mode='all', lur_mode='linear', attn_mode='full')
+BASE = dict(r_dim=8, lam=0.5, x_mode='all', lur_mode='linear', attn_mode='full')
 
 ABLATION_GROUPS = {
     'r_dim':     [dict(r_dim=d)     for d in [8, 16, 32]],
-    'lambda':    [dict(lam=l)       for l in [0.2, 0.3, 0.5]],
+    'lambda':    [dict(lam=l)       for l in [0.3, 0.5, 0.7]],
     'x_mode':    [dict(x_mode=m)    for m in ['all', 'no_building', 'satellite', 'none']],
     'lur_mode':  [dict(lur_mode=m)  for m in ['linear', 'mlp']],
     'attn_mode': [dict(attn_mode=m) for m in ['full', 'spatial_only']],
@@ -93,7 +93,8 @@ def run_epoch(model, loader, device, optimizer, criterion, lam, train=True):
             X_src  = batch["X_sources"].to(device)
             pm_tgt = batch["pm_target"].to(device)
 
-            pm_direct, pm_cross = model(h_src, c_tgt, c_src, X_tgt, X_src, h_tgt)
+            w_src  = batch["wind_sources"].to(device)
+            pm_direct, pm_cross = model(h_src, c_tgt, c_src, X_tgt, X_src, w_src, h_tgt)
             ld = criterion(pm_direct, pm_tgt)
             lc = criterion(pm_cross,  pm_tgt)
             lj = lam * ld + (1 - lam) * lc
@@ -117,7 +118,8 @@ def evaluate_test(model, loader, device):
             pd_, pc = model(
                 batch["h_sources"].to(device), batch["coords_target"].to(device),
                 batch["coords_sources"].to(device), batch["X_target"].to(device),
-                batch["X_sources"].to(device), batch["h_target"].to(device),
+                batch["X_sources"].to(device), batch["wind_sources"].to(device),
+                batch["h_target"].to(device),
             )
             d_preds.append(pd_.cpu().numpy())
             c_preds.append(pc.cpu().numpy())
@@ -194,8 +196,12 @@ def run(cfg: dict, device: torch.device):
     print(f"\n{'─'*50}\n  실험: {cfg_to_dir(cfg)}")
 
     train_ds = PseudoGridDataset("train", x_mode=cfg['x_mode'])
-    val_ds   = PseudoGridDataset("val",   x_mode=cfg['x_mode'], X_scaler=train_ds.X_scaler)
-    test_ds  = PseudoGridDataset("test",  x_mode=cfg['x_mode'], X_scaler=train_ds.X_scaler)
+    val_ds   = PseudoGridDataset("val",   x_mode=cfg['x_mode'],
+                                 X_scaler=train_ds.X_scaler,
+                                 wind_scaler=train_ds.wind_scaler)
+    test_ds  = PseudoGridDataset("test",  x_mode=cfg['x_mode'],
+                                 X_scaler=train_ds.X_scaler,
+                                 wind_scaler=train_ds.wind_scaler)
 
     kw = dict(collate_fn=collate_fn, num_workers=0)
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  **kw)

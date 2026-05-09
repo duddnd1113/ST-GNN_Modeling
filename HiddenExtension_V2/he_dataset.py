@@ -7,6 +7,8 @@ X 구성 (x_mode별):
     'satellite'   : NDVI+IBI                → 2차원
     'static_only' : lc(4)+bldg(3)           → 7차원
     'none'        : 없음                     → 0차원
+
+wind (u, v): 항상 로드, attention score에 별도 입력
 """
 import os
 import numpy as np
@@ -16,16 +18,15 @@ from sklearn.preprocessing import StandardScaler
 
 from config import (
     HIDDEN_DIR, STGNN_WINDOW,
-    NDVI_PATH, IBI_PATH, LC_PATH, BLDG_PATH,
+    NDVI_PATH, IBI_PATH, LC_PATH, BLDG_PATH, WIND_PATH,
     TIME_IDX, FEATURE_NAMES,
 )
 
-# x_mode → full X (9차원) 에서의 슬라이스 또는 인덱스 리스트
 X_SLICE = {
     'all':         slice(0, 9),
-    'no_building': slice(0, 6),   # V1과 동일
+    'no_building': slice(0, 6),
     'satellite':   slice(0, 2),
-    'static_only': list(range(2, 9)),   # lc + bldg, NDVI/IBI 제외
+    'static_only': list(range(2, 9)),
     'none':        None,
 }
 
@@ -40,7 +41,8 @@ def feature_names_for_mode(x_mode: str) -> list:
 
 
 class PseudoGridDataset(Dataset):
-    def __init__(self, split: str = "train", x_mode: str = "all", X_scaler=None):
+    def __init__(self, split: str = "train", x_mode: str = "all",
+                 X_scaler=None, wind_scaler=None):
         assert x_mode in X_SLICE, f"x_mode must be one of {list(X_SLICE)}"
         self.x_mode = x_mode
 
@@ -51,48 +53,55 @@ class PseudoGridDataset(Dataset):
         coords_np   = np.load(os.path.join(HIDDEN_DIR, "coords.npy"))
         sta_to_grid = np.load(os.path.join(HIDDEN_DIR, "station_to_grid_idx.npy"))
 
-        # ── LUR 변수 로드 ────────────────────────────────────────────────────
+        # ── LUR / 풍속 데이터 로드 ────────────────────────────────────────────
         ndvi_all = np.load(NDVI_PATH)   # [T_all, G]
         ibi_all  = np.load(IBI_PATH)    # [T_all, G]
         lc_all   = np.load(LC_PATH)     # [G, 4]
-        bldg_all = np.load(BLDG_PATH)   # [G, 3]  ← 신규
+        bldg_all = np.load(BLDG_PATH)   # [G, 3]
+        wind_all = np.load(WIND_PATH)   # [T_all, N, 2]  (u, v)
 
         # ── 타임스텝 인덱스 ───────────────────────────────────────────────────
         time_idx          = np.load(TIME_IDX[split])
         target_global_idx = time_idx[STGNN_WINDOW:]   # [T_samp]
-
         T_samp, N = h_raw.shape[:2]
 
-        # ── 전체 X 구성 [T_samp, N, 9] ───────────────────────────────────────
-        ndvi_sta = ndvi_all[target_global_idx][:, sta_to_grid]          # [T, N]
-        ibi_sta  = ibi_all[target_global_idx][:, sta_to_grid]           # [T, N]
-        lc_sta   = lc_all[sta_to_grid]                                  # [N, 4]
-        bldg_sta = bldg_all[sta_to_grid]                                # [N, 3]
+        # ── wind 정규화 [T_samp, N, 2] ───────────────────────────────────────
+        wind_raw = wind_all[target_global_idx].astype(np.float32)      # [T, N, 2]
+        wind_2d  = wind_raw.reshape(-1, 2)
+        if wind_scaler is None:
+            self.wind_scaler = StandardScaler().fit(wind_2d)
+        else:
+            self.wind_scaler = wind_scaler
+        wind_norm = self.wind_scaler.transform(wind_2d).reshape(T_samp, N, 2)
+        self.wind = torch.from_numpy(wind_norm.astype(np.float32))     # [T, N, 2]
 
+        # ── 전체 X 구성 [T_samp, N, 9] ───────────────────────────────────────
+        ndvi_sta = ndvi_all[target_global_idx][:, sta_to_grid]         # [T, N]
+        ibi_sta  = ibi_all[target_global_idx][:, sta_to_grid]          # [T, N]
+        lc_sta   = lc_all[sta_to_grid]                                 # [N, 4]
+        bldg_sta = bldg_all[sta_to_grid]                               # [N, 3]
         lc_rep   = np.broadcast_to(lc_sta[None],  (T_samp, N, 4)).copy()
         bldg_rep = np.broadcast_to(bldg_sta[None], (T_samp, N, 3)).copy()
 
         X_full = np.concatenate([
-            ndvi_sta[:, :, None],   # [T, N, 1]
-            ibi_sta[:, :, None],    # [T, N, 1]
-            lc_rep,                 # [T, N, 4]
-            bldg_rep,               # [T, N, 3]
-        ], axis=-1).astype(np.float32)                                  # [T, N, 9]
+            ndvi_sta[:, :, None],
+            ibi_sta[:, :, None],
+            lc_rep,
+            bldg_rep,
+        ], axis=-1).astype(np.float32)                                 # [T, N, 9]
 
-        # ── x_mode에 따라 슬라이스 ────────────────────────────────────────────
+        # ── x_mode 슬라이스 & 정규화 ─────────────────────────────────────────
         sl = X_SLICE[x_mode]
         if sl is not None:
-            X_raw  = X_full[:, :, sl]
-            x_dim  = X_raw.shape[-1]
-            X_2d   = X_raw.reshape(-1, x_dim)
+            X_raw = X_full[:, :, sl]
+            x_dim = X_raw.shape[-1]
+            X_2d  = X_raw.reshape(-1, x_dim)
             if X_scaler is None:
-                self.X_scaler = StandardScaler()
-                X_norm = self.X_scaler.fit_transform(X_2d)
+                self.X_scaler = StandardScaler().fit(X_2d)
             else:
                 self.X_scaler = X_scaler
-                X_norm = X_scaler.transform(X_2d)
-            X_norm = X_norm.reshape(T_samp, N, x_dim).astype(np.float32)
-            self.X = torch.from_numpy(X_norm)
+            X_norm = self.X_scaler.transform(X_2d).reshape(T_samp, N, x_dim)
+            self.X = torch.from_numpy(X_norm.astype(np.float32))
         else:
             self.X        = torch.zeros(T_samp, N, 0, dtype=torch.float32)
             self.X_scaler = None
@@ -104,11 +113,12 @@ class PseudoGridDataset(Dataset):
         self.coords = torch.from_numpy(coords_np)
         self.T, self.N, self.x_dim = T_samp, N, x_dim
 
-        # inference용 raw 배열 보관
+        # inference용 보관
         self.ndvi_all          = ndvi_all
         self.ibi_all           = ibi_all
         self.lc_all            = lc_all
         self.bldg_all          = bldg_all
+        self.wind_all          = wind_all
         self.target_global_idx = target_global_idx
         self.sta_to_grid       = sta_to_grid
 
@@ -129,5 +139,6 @@ class PseudoGridDataset(Dataset):
             "coords_sources": self.coords[src_mask],
             "X_target":       self.X[t, s],
             "X_sources":      self.X[t][src_mask],
+            "wind_sources":   self.wind[t][src_mask],   # [N-1, 2]  ← 신규
             "pm_target":      self.pm[t, s],
         }

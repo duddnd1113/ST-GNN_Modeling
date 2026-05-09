@@ -125,6 +125,21 @@ This project reframes air pollution modeling as:
 
 ---
 
+## Hidden Extension 버전 히스토리
+
+ST-GNN hidden vector를 city-wide grid로 확장하는 실험 시리즈.
+
+| 버전 | 폴더 | 핵심 방법 | best direct MAE | vs ST-GNN baseline |
+|------|------|----------|----------------|-------------------|
+| ST-GNN | `checkpoints/` | Station forecasting | **2.6144** | - |
+| V1 | `HiddenExtension_V1/` | Cross-attention + 6D LUR (공유 compressor) | 2.6659 | ↓악화 |
+| V2 | `HiddenExtension_V2/` | Cross-attention + 9D LUR (독립 compressor) | 2.6105 | ↑0.0039 개선 |
+| V3 | `HiddenExtension_V3/` | Wind-aware IDW + Random Forest | (진행 중) | 목표 < 2.55 |
+
+각 버전의 상세 실험 설계, 결과, 교훈은 해당 폴더의 `README.md` 참고.
+
+---
+
 ## 👤 Author
 
 Yonsei University
