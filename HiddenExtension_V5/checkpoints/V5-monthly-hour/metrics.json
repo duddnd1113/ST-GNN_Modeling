@@ -1,0 +1,17 @@
+{
+  "exp_id": "V5-monthly-hour",
+  "use_bias": true,
+  "fe_mode": "monthly+hour",
+  "use_seasonal": "monthly+hour",
+  "use_hier": true,
+  "mlp_hidden": [
+    64,
+    32
+  ],
+  "val_mae": 3.953235149383545,
+  "test_mae": 2.6227285861968994,
+  "test_rmse": 3.69975209236145,
+  "test_r2": 0.8819241765318241,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 5.95
+}

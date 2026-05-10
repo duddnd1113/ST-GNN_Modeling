@@ -1,0 +1,17 @@
+{
+  "exp_id": "V5-hier-deep",
+  "use_bias": true,
+  "use_seasonal": true,
+  "use_hier": true,
+  "mlp_hidden": [
+    128,
+    64,
+    32
+  ],
+  "val_mae": 3.948019027709961,
+  "test_mae": 2.666900634765625,
+  "test_rmse": 3.704559326171875,
+  "test_r2": 0.8816171253847735,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 7.34
+}

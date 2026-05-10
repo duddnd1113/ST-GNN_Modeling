@@ -1,0 +1,16 @@
+{
+  "exp_id": "V5-base",
+  "use_bias": false,
+  "use_seasonal": false,
+  "use_hier": false,
+  "mlp_hidden": [
+    64,
+    32
+  ],
+  "val_mae": 3.914670467376709,
+  "test_mae": 2.6036059856414795,
+  "test_rmse": 3.672672748565674,
+  "test_r2": 0.8836462934972845,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 13.22
+}

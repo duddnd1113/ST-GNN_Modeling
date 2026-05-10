@@ -1,0 +1,17 @@
+{
+  "exp_id": "V5-monthly",
+  "use_bias": true,
+  "fe_mode": "monthly",
+  "use_seasonal": "monthly",
+  "use_hier": true,
+  "mlp_hidden": [
+    64,
+    32
+  ],
+  "val_mae": 3.9450204372406006,
+  "test_mae": 2.611722946166992,
+  "test_rmse": 3.6797659397125244,
+  "test_r2": 0.8831964175373045,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 7.01
+}

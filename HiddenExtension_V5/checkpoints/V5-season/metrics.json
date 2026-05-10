@@ -1,0 +1,16 @@
+{
+  "exp_id": "V5-season",
+  "use_bias": true,
+  "use_seasonal": true,
+  "use_hier": false,
+  "mlp_hidden": [
+    64,
+    32
+  ],
+  "val_mae": 3.9391608238220215,
+  "test_mae": 2.581289291381836,
+  "test_rmse": 3.6565513610839844,
+  "test_r2": 0.8846655347771464,
+  "stgnn_mae": 2.6143953800201416,
+  "elapsed_min": 18.52
+}
