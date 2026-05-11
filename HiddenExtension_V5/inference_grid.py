@@ -7,14 +7,22 @@ Wind-aware IDW로 grid hidden 생성 → FixedEffectPMModel 적용
     python3 inference_grid.py --exp V5-hier
 """
 import os, sys, argparse, json
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+_V5_DIR  = os.path.dirname(os.path.abspath(__file__))
+_ROOT    = os.path.abspath(os.path.join(_V5_DIR, ".."))
+_V3_DIR  = os.path.join(_ROOT, "HiddenExtension_V3")
+for _mod in ["model", "config", "dataset"]:
+    sys.modules.pop(_mod, None)
+for _p in [_ROOT, _V3_DIR, _V5_DIR]:
+    if _p in sys.path: sys.path.remove(_p)
+sys.path.insert(0, _ROOT)
+sys.path.insert(0, _V3_DIR)
+sys.path.insert(0, _V5_DIR)  # 최우선
 
 import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
-import joblib
 
 from config import (
     CKPT_DIR, H_DIM, N_STATION, LUR_DIM, TEMPORAL_NAMES,

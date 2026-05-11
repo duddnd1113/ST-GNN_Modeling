@@ -82,18 +82,10 @@ def run_holdout(exp_id: str, verbose: bool = True) -> dict:
     coords   = np.load(os.path.join(HIDDEN_DIR, "coords.npy"))   # (N, 2)
     T, N, d  = h_test.shape
 
-    # temporal 정보 (test split 기준)
     from config import TIME_IDX, STGNN_WINDOW
-    import importlib; ds_mod = importlib.import_module("dataset")
-    ts_all   = np.load(os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "../HiddenExtension_V1/../HiddenExtension_V1/data/hidden_vectors/../../../"
-        "ST-GNN_Dataset/Data_Preprocessed/Land Use Regression/격자 기본/timestamps_all.npy"
-    ), allow_pickle=True)
-
-    gdir  = "/home/data/youngwoong/ST-GNN_Dataset/Data_Preprocessed/Land Use Regression/격자 기본"
-    ts    = np.load(os.path.join(gdir, "timestamps_all.npy"))
-    tidx  = np.load(TIME_IDX["test"])
+    gdir    = "/home/data/youngwoong/ST-GNN_Dataset/Data_Preprocessed/Land Use Regression/격자 기본"
+    ts      = np.load(os.path.join(gdir, "timestamps_all.npy"))
+    tidx    = np.load(TIME_IDX["test"])
     ts_test = ts[tidx[STGNN_WINDOW:]]
 
     # LUR (test split, station 위치)
