@@ -9,7 +9,8 @@ import pandas as pd
 import openpyxl
 from sklearn.preprocessing import LabelEncoder
 
-from config import ROAD_PM_FILES, SCENARIO_DIR, SCENARIO_NAME, HIDDEN_DIR, CKPT_DIR, TRAFFIC_CACHE
+from config import (ROAD_PM_FILES, SCENARIO_DIR, SCENARIO_NAME, HIDDEN_DIR,
+                    CKPT_DIR, TRAFFIC_CACHE, WINSORIZE_PCT)
 
 
 def load_raw() -> pd.DataFrame:
@@ -48,14 +49,29 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df['month_sin']  = np.sin(2 * np.pi * df['month'] / 12)
     df['month_cos']  = np.cos(2 * np.pi * df['month'] / 12)
     # 기상 보완
-    df['도로길이'] = df['측정거리'].fillna(df['측정거리'].median())
-    df['기온']     = df['기온'].fillna(df.groupby('month')['기온'].transform('median'))
-    df['습도']     = df['습도'].fillna(df.groupby('month')['습도'].transform('median'))
-    df['is_dry']   = (df['습도'] < 40).astype(int)
+    df['도로길이']  = df['측정거리'].fillna(df['측정거리'].median())
+    df['기온']      = df['기온'].fillna(df.groupby('month')['기온'].transform('median'))
+    df['습도']      = df['습도'].fillna(df.groupby('month')['습도'].transform('median'))
+    df['is_dry']    = (df['습도'] < 40).astype(int)
+    # 비선형 피처
+    df['hum_sq']     = df['습도'] ** 2
+    df['temp_x_hum'] = df['기온'] * df['습도']
+    df['is_daero']   = df['도로명'].str.endswith('대로').astype(int)
     # 범주형 인코딩
     le_gu = LabelEncoder().fit(df['지역명'])
     df['gu_enc'] = le_gu.transform(df['지역명'])
     return df, le_gu
+
+
+def winsorize(df: pd.DataFrame, col: str = '재비산먼지') -> pd.DataFrame:
+    """Winsorize: 학습 데이터 기준 WINSORIZE_PCT 이상을 cap."""
+    train_vals = df.loc[df['year'] < 2025, col].dropna()
+    cap = float(np.percentile(train_vals, WINSORIZE_PCT))
+    n_clipped = (df[col] > cap).sum()
+    df = df.copy()
+    df[col] = df[col].clip(upper=cap)
+    print(f"  Winsorize ({WINSORIZE_PCT}th pct = {cap:.1f} μg/m³): {n_clipped}건 클리핑")
+    return df, cap
 
 
 def merge_ambient_pm(df: pd.DataFrame) -> pd.DataFrame:
@@ -125,13 +141,16 @@ def build_dataset():
     print("3. 피처 엔지니어링...")
     df, le_gu = add_features(df)
 
-    print("4. 대기 PM10 연결...")
+    print("4. 이상치 처리 (Winsorize)...")
+    df, cap = winsorize(df)
+
+    print("5. 대기 PM10 연결...")
     df = merge_ambient_pm(df)
 
-    print("5. 교통량 연결...")
+    print("6. 교통량 연결...")
     df = merge_traffic(df)
 
-    return df, le_gu
+    return df, le_gu, cap
 
 
 if __name__ == "__main__":

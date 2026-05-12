@@ -35,9 +35,15 @@ TIME_IDX_TEST = os.path.join(GRID_DIR, "time_idx_test.npy")
 CKPT_DIR = os.path.join(BASE_DIR, "checkpoints")
 os.makedirs(CKPT_DIR, exist_ok=True)
 
+# ── 이상치 처리 ──────────────────────────────────────────────────────────
+# 95th percentile (≈70 μg/m³) 이상은 Winsorize
+# 극단 이상치는 공사·특수 상황 등 피처로 설명 불가 → 모델 혼란
+WINSORIZE_PCT = 95        # percentile 기준
+USE_LOG_TARGET = True     # log1p(y) 변환 여부
+
 # ── 모델 하이퍼파라미터 ───────────────────────────────────────────────────
-RF_PARAMS = dict(n_estimators=200, max_depth=10,
-                 min_samples_leaf=5, n_jobs=-1, random_state=42)
+RF_PARAMS = dict(n_estimators=300, max_depth=12,
+                 min_samples_leaf=3, n_jobs=-1, random_state=42)
 
 # ── 결합 파라미터 ─────────────────────────────────────────────────────────
 # road_struc_% 컬럼 인덱스 (landcover_static.npy: buildings%, green%, road%, river%)
