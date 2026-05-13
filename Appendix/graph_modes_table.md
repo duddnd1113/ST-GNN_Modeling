@@ -69,12 +69,31 @@ Soft-Dynamic:
 
 ## 시각화 파일 목록
 
+### 실제 서울 지도 기반 (OpenStreetMap, 40개 관측소)
+
 | 파일 | 설명 |
 |------|------|
-| [fig_graph_modes_overview.png](fig_graph_modes_overview.png) | 세 가지 Graph Mode 3-패널 비교 |
-| [fig_static_graph.png](fig_static_graph.png) | Static Graph 단독 시각화 |
-| [fig_climatological_graph.png](fig_climatological_graph.png) | Climatological Graph 단독 시각화 |
-| [fig_soft_dynamic_graph.png](fig_soft_dynamic_graph.png) | Soft-Dynamic Graph 단독 시각화 |
+| [osm_graph_modes_overview.png](osm_graph_modes_overview.png) | 세 가지 Graph Mode 3-패널 비교 (OSM 실제 지도) |
+| [osm_static_graph.png](osm_static_graph.png) | Static Graph — 서울 지도 위 (706 edges, 거리별 색상) |
+| [osm_climatological_graph.png](osm_climatological_graph.png) | Climatological Graph — 서울 지도 위 (396 edges, 단방향) |
+| [osm_soft_dynamic_graph.png](osm_soft_dynamic_graph.png) | Soft-Dynamic Graph — 서울 지도 위 (활성 353 / 비활성 353) |
 
-> **주의**: 시각화는 개념 설명용 모식도이며, 14개 대표 노드를 사용한 schematic 다이어그램이다.  
-> 실제 실험에서는 서울 40개 관측소 노드가 사용되었다.
+### 개념 설명용 Schematic (14개 대표 노드)
+
+| 파일 | 설명 |
+|------|------|
+| [fig_graph_modes_overview.png](fig_graph_modes_overview.png) | 세 가지 Graph Mode 3-패널 개념도 |
+| [fig_static_graph.png](fig_static_graph.png) | Static Graph 개념도 |
+| [fig_climatological_graph.png](fig_climatological_graph.png) | Climatological Graph 개념도 |
+| [fig_soft_dynamic_graph.png](fig_soft_dynamic_graph.png) | Soft-Dynamic Graph 개념도 |
+
+### 생성 스크립트
+
+| 파일 | 설명 |
+|------|------|
+| [generate_osm_graph_viz.py](generate_osm_graph_viz.py) | OSM 지도 기반 시각화 생성 (requests + PIL + matplotlib) |
+| [generate_graph_mode_viz.py](generate_graph_mode_viz.py) | Schematic 다이어그램 생성 (matplotlib only) |
+
+> **OSM 시각화**: 실제 서울 40개 PM10 관측소 좌표를 사용하며, OpenStreetMap 타일을 배경으로 활용.  
+> OSM 재생성 시 인터넷 연결 필요 (`python3 generate_osm_graph_viz.py`).  
+> © OpenStreetMap contributors
