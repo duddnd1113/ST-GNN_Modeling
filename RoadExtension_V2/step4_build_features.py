@@ -30,6 +30,7 @@ from config import (
     ROAD_TARGET_CSV, GRID_LUR_CSV, TRAFFIC_PARQUET,
     TIMESTAMPS_PATH, NDVI_PATH, IBI_PATH, LC_PATH, BLDG_PATH, TIME_IDX, STGNN_WINDOW,
     V5_GRID_PM, FEATURES_TRAIN_CSV, FEATURES_TEST_CSV, CKPT_DIR,
+    RAIN_CACHE, ROAD_HIER_CACHE,
 )
 
 
@@ -206,6 +207,63 @@ def add_ambient_pm(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ── 강수 피처 ────────────────────────────────────────────────────────────────
+def add_rain(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    격자별 일일 강수 피처 연결.
+    - days_from_rain: 마지막 비 이후 경과 일수 (r=0.236)
+    - daily_precip_mm: 당일 강수량
+    커버리지: 2023-10-01 ~ 2025-10-31 (이전 기간은 NaN → LightGBM 자동 처리)
+    """
+    if not os.path.exists(RAIN_CACHE):
+        print("  강수 캐시 없음. step_rain.py를 먼저 실행하세요.")
+        df["days_from_rain"]  = np.nan
+        df["daily_precip_mm"] = np.nan
+        return df
+
+    rain = pd.read_csv(RAIN_CACHE, parse_dates=["date"])
+    rain["date"] = rain["date"].dt.normalize()
+
+    df["date_norm"] = pd.to_datetime(df["date"]).dt.normalize()
+    df = df.merge(
+        rain[["CELL_ID", "date", "days_from_rain", "daily_precip_mm"]],
+        left_on=["CELL_ID", "date_norm"],
+        right_on=["CELL_ID", "date"],
+        how="left",
+        suffixes=("", "_rain"),
+    ).drop(columns=["date_rain", "date_norm"], errors="ignore")
+
+    matched = df["days_from_rain"].notna().sum()
+    print("  강수 피처 매칭: {}/{} ({:.1f}%)".format(matched, len(df), 100*matched/len(df)))
+    return df
+
+
+# ── 도로 위계 피처 ────────────────────────────────────────────────────────────
+def add_road_hier(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    OSM 기반 격자별 도로 위계 피처 연결 (정적).
+    - highway_rank: 0(기타)~4(국도)
+    - max_lanes: 최대 차선 수
+    - mean_gvi: 녹지율 (Green View Index)
+    - total_road_length_m: 격자 내 총 도로 길이
+    """
+    if not os.path.exists(ROAD_HIER_CACHE):
+        print("  도로 위계 캐시 없음. step_road_hier.py를 먼저 실행하세요.")
+        for col in ["highway_rank", "max_lanes", "mean_gvi", "total_road_length_m"]:
+            df[col] = np.nan
+        return df
+
+    hier = pd.read_csv(ROAD_HIER_CACHE)
+    df = df.merge(
+        hier[["CELL_ID", "highway_rank", "max_lanes", "mean_gvi", "total_road_length_m"]],
+        on="CELL_ID",
+        how="left",
+    )
+    matched = df["highway_rank"].notna().sum()
+    print("  도로 위계 피처 매칭: {}/{} ({:.1f}%)".format(matched, len(df), 100*matched/len(df)))
+    return df
+
+
 # ── 교호작용 피처 ─────────────────────────────────────────────────────────────
 def add_interactions(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -267,11 +325,18 @@ def main():
     print("\n7. 교호작용 피처...")
     df = add_interactions(df)
 
+    print("\n8. 강수 피처...")
+    df = add_rain(df)
+
+    print("\n9. 도로 위계 피처...")
+    df = add_road_hier(df)
+
     # 결측치 요약
     print("\n피처 결측치:")
-    for col in ["traffic", "ambient_pm10"]:
-        nan_pct = 100 * df[col].isna().mean()
-        print("  {}: {:.1f}% NaN".format(col, nan_pct))
+    for col in ["traffic", "ambient_pm10", "days_from_rain", "highway_rank"]:
+        if col in df.columns:
+            nan_pct = 100 * df[col].isna().mean()
+            print("  {}: {:.1f}% NaN".format(col, nan_pct))
 
     # Train / Test 분할 (2025 = test)
     mask_te = df["year"] == 2025

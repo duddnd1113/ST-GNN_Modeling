@@ -54,6 +54,8 @@ ROAD_TARGET_CSV     = os.path.join(CKPT_DIR, "road_pm_grid.csv")
 FEATURES_TRAIN_CSV  = os.path.join(CKPT_DIR, "features_train.csv")
 FEATURES_TEST_CSV   = os.path.join(CKPT_DIR, "features_test.csv")
 ABLATION_RESULTS    = os.path.join(CKPT_DIR, "ablation_results.json")
+RAIN_CACHE          = os.path.join(CKPT_DIR, "rain_cache.csv")
+ROAD_HIER_CACHE     = os.path.join(CKPT_DIR, "road_hier_grid.csv")
 os.makedirs(CKPT_DIR, exist_ok=True)
 
 # ── 전처리 파라미터 ──────────────────────────────────────────────────────────
@@ -145,6 +147,18 @@ FEATURE_GROUPS = {
         "cold_and_dry",   # 기온<5°C + 습도<50% (r=0.214, 겨울 극단 패턴)
         "traffic_x_road", # 교통량 × 도로 면적 비율 (실질적 교통 노출)
     ],
+    # 강수 피처 (마지막 비 이후 일수) — 가장 중요한 누락 변수
+    "rain": [
+        "days_from_rain",    # 마지막 비 이후 경과 일수 (r=0.236)
+        "daily_precip_mm",   # 당일 강수량
+    ],
+    # 도로 위계 피처 (OSM 기반)
+    "road_hier": [
+        "highway_rank",          # 도로 위계 점수 (0=기타, 4=국도)
+        "max_lanes",             # 최대 차선 수
+        "mean_gvi",              # 녹지율 (GVI)
+        "total_road_length_m",   # 격자 내 총 도로 길이
+    ],
 }
 
 ABLATION_CONFIGS = {
@@ -154,4 +168,9 @@ ABLATION_CONFIGS = {
     "D_ambient":   ["temporal", "weather", "lur", "ambient_pm"],
     "E_all":       ["temporal", "weather", "lur", "traffic", "ambient_pm"],
     "F_interact":  ["temporal", "weather", "lur", "traffic", "ambient_pm", "interaction"],
+    # 새 데이터 ablation
+    "G_rain":      ["temporal", "weather", "lur", "ambient_pm", "rain"],
+    "H_hier":      ["temporal", "weather", "lur", "ambient_pm", "road_hier"],
+    "I_all_v2":    ["temporal", "weather", "lur", "traffic", "ambient_pm",
+                    "interaction", "rain", "road_hier"],
 }
