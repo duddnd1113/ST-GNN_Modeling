@@ -1,0 +1,81 @@
+{
+  "boxcox_lambda": -0.11114972326765221,
+  "clip_low": 2.0,
+  "clip_high": 78.0,
+  "shift": 0.01,
+  "n_train": 123229,
+  "n_test": 75188,
+  "features": [
+    "month_sin",
+    "month_cos",
+    "hour_sin",
+    "hour_cos",
+    "weekday",
+    "is_weekend",
+    "season",
+    "기온",
+    "습도",
+    "is_dry",
+    "buildings",
+    "greenspace",
+    "road_struc",
+    "river_zone",
+    "ndvi",
+    "ibi",
+    "elev_mean",
+    "sum_area",
+    "sum_height",
+    "ambient_pm10"
+  ],
+  "results": {
+    "LightGBM_BC": {
+      "train_mae": 5.322006222664291,
+      "train_r2": 0.44537095286368455,
+      "test_mae": 7.3326447263188275,
+      "test_r2": 0.2859230475810457,
+      "note": "Box-Cox 타깃, 기준선"
+    },
+    "LightGBM_Huber": {
+      "train_mae": 5.381970677726132,
+      "train_r2": 0.4500890509362173,
+      "test_mae": 7.708620079997925,
+      "test_r2": 0.28333103088351486,
+      "note": "Huber loss δ=8, 극단치 완화"
+    },
+    "LightGBM_Weighted": {
+      "train_mae": 5.1017067839229355,
+      "train_r2": 0.5537205486196985,
+      "test_mae": 7.461485754835255,
+      "test_r2": 0.32652132557537206,
+      "note": "고농도 샘플 가중치 w=1+(pm/med)^0.5"
+    },
+    "XGBoost_BC": {
+      "train_mae": 5.77696127888419,
+      "train_r2": 0.2926964855724651,
+      "test_mae": 7.38257563830107,
+      "test_r2": 0.16343779128068425,
+      "note": "XGBoost, Box-Cox 타깃"
+    },
+    "LinearSVR": {
+      "train_mae": 6.909996795559181,
+      "train_r2": 0.08113171602919167,
+      "test_mae": 7.615627388693747,
+      "test_r2": 0.15261036111660198,
+      "note": "선형 커널 SVR, 전체 데이터"
+    },
+    "SVR_RBF": {
+      "train_mae": 4.064397125915368,
+      "train_r2": 0.6212486933064454,
+      "test_mae": 9.70959432216932,
+      "test_r2": -0.29968575538885656,
+      "note": "RBF 커널, 15000건 서브샘플"
+    },
+    "TwoStage": {
+      "train_mae": 5.446199157172578,
+      "train_r2": 0.41671234490936293,
+      "test_mae": 7.338278970991507,
+      "test_r2": 0.2757390756068455,
+      "note": "시간 LGBM + 공간 Ridge 2단계"
+    }
+  }
+}

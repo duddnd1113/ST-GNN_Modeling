@@ -29,3 +29,5 @@ __pycache__/
 .env
 *.log
 plots/
+
+RoadExtension_V3/checkpoints/
